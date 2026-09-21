@@ -70,7 +70,7 @@
 - PowerShell 里 `curl` 是 Invoke-WebRequest 别名，要用 `curl.exe`。
 - Gradio `share=True` 公网隧道在本机网络创建失败；公网部署走 **Hugging Face Spaces**。
 - 改完代码要确认 7860 跑的是新进程（先 kill 命令行含 app.py 的 python.exe 再启动）；排查组件看 /config 或 gradio_client 的 view_api。
-- **Gradio Slider 三个事件（镜头浏览器平滑预览的关键，已实测）**：`.input` 拖动中实时高频；`.change` 在值提交时触发（数字框回车/键盘方向键/鼠标松手），且 `trigger_mode` 默认 `always_last`——连续触发时自动丢弃中间值、只跑最新一次；`.release` 鼠标/按键松手触发一次（默认 once），但**数字框输入回车时 release 会取到提交前的旧值**（实测输入 25 却回到 1）。本项目做法：change 和 release **都绑** `_show`，再用一个 `gr.State(shown_state=[镜头号,视图])` 去重——当前已显示的镜头+视图再次到来就返回三个 `gr.skip()`，不重载图片、不重复触发淡入。于是：鼠标拖动靠 release（拖中零请求、松手一次），数字框靠 change（值正确）兜底，重复事件被去重。
+- **Gradio Slider 事件（v0.2.2 修正）**：`.change` 也会被后端 `gr.update(value=...)` 触发。旧版 change+release 在提取中读到尚未写入的 browser_state=[]，会把新大图清空。现在只绑定 `.input`，主流程更新滑块不触发浏览；空数据/busy 返回 skip。所有手动浏览事件 `show_progress='hidden'`，主提取的加载指示只放 `progress_area`。不要恢复 change+release 双绑。
 - **Gradio 6 的 `gr.HTML` 经 innerHTML 插入，里面的 `<script>` 不执行**。要注入 CSS/JS：`gr.HTML(head="<style>…</style>", js_on_load="<JS字符串>")`；js_on_load 里注册的全局监听用 `window.__xxx` 标志防重复。
 - **滑块滚轮会让镜头号飞速跳变、大图狂闪**：js_on_load 中在 document 的 capture 阶段监听 wheel，`target` 是 `input[type=range]` 时 `preventDefault()`（passive:false）。
 - **`gr.Gallery` 点缩略图默认弹 lightbox 放大层**；要“点一张就在上方跳转”，设 `allow_preview=False`。
@@ -95,6 +95,17 @@
 - `.gitignore` 忽略：原始视频/、分镜结果/、.gradio_tmp/、.gradio/、__pycache__/、.env、临时脚本。
 
 ## 给接手 AI 的工作约定
+
+### v0.2.2 防闪烁修复（2026-09-21）
+
+- 旧版动画还有一个实质问题：Python 普通三引号转义破坏了 JS 正则，`node --check` 报语法错误。动画已移到 `web/preview.js`，样式在 `web/preview.css`，**两者必须随 app.py 一起分发**。
+- 大图改用 Gradio 6.28 `HTML` 的常量模板＋`watch('value')`。固定双 img，隐藏层 decode 成功才叠化平移；加载失败保留旧图；字幕与完成解码的图同步提交。支持减少动态效果设置。
+- `storyboard/preview.py` 用 Pillow 生成最大 960×640 的网页预览、24 项 LRU 缓存；通过 JSON/data URI 发送，不修改导出原图。提取每秒最多发一次大图，缩略图每两秒发送快照，最后一镜强制补齐；前端只保留最新待显示请求，自动预览每次显示后至少停留一秒。
+- 处理期间禁用手动浏览，完成后开放；主流程、滑块、切图、上下镜和 Gallery 共享串行事件组，避免相互覆盖。每次任务有独立 run_id；新任务等待首张图期间保留旧图并明确提示。完成后不跳回第一镜。
+- 单元测试：`D:\python\python.exe -m unittest discover -s tests -v`。覆盖空状态/忙碌/去重、不存在预览、事件绑定及独立进度、100 镜快流限速与全量结果、异常后解锁。
+- 验收：系统 Python 命令行 demo_test.mp4 5 镜导出成功；浏览器真实 pipeline 跑 48 镜合成片并保存全量结果，逐帧 DOM 监测未见大图清空或容器/已有缩略图重建。数字框、上下镜、关键帧/运动图、Gallery 定位、快速输入最后落点均通过。未以此声称完整长片逐帧验收。
+- 补充验收：测试专用入口每 50ms 推入一张、合计 40 张，前端合并到最后一张；注入无法解码的 JPEG 后旧图和字幕保留，重新提取 48 镜成功恢复。该浏览器会话逐帧 DOM 监测 27,540 次，空白帧/容器重建/已有首张缩略图重建均为 0（含静止时段，并非 27,540 张镜头）。测试专用入口与监测器不进入正式程序。新增缺失关键帧时 Gallery 序号映射测试，共 6 项单元测试通过。
+- 桌面快捷方式指向本项目的 `启动分镜工具.bat`，BAT 再启动本目录 app.py；无须另建快捷方式或修改 GBK BAT。源码变动需退出旧服务后重新双击启动，单纯刷新网页不会重新加载 Python 源码。
 - 改动后必须用**系统 Python** 实测：命令行跑 demo_test.mp4，必要时起服务用 gradio_client 调 `/process_video`，并用浏览器实际点一遍（滑块、关键帧/运动图切换、gallery 联动、打开文件夹），不要只看代码。
 - 交付优先「双击即用」；新增依赖同步 `requirements.txt` 并装进 `D:\python\python.exe`。
 - 每次重要进展更新本文件；外部事实（API/价格/接口）现查现引，不凭记忆。

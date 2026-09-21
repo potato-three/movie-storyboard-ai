@@ -10,7 +10,7 @@ scenedetect>=0.6.4
 opencv-python>=4.9.0
 
 # 网页上传界面
-gradio>=4.44.0
+gradio>=6.28.0,<7
 
 # 表格数据处理
 pandas>=2.0.0
