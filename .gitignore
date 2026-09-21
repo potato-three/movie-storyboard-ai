@@ -1,0 +1,34 @@
+# ===== 数据与结果（体积大 / 含版权画面，绝不上传 GitHub）=====
+原始视频/*
+!原始视频/.gitkeep
+分镜结果/*
+!分镜结果/.gitkeep
+
+# ===== Gradio 运行缓存 =====
+.gradio_tmp/
+.gradio/
+flagged/
+*.tmp
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ===== 系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ===== 密钥（M3 起视觉 API 的 Key 放本地 .env，绝不入库）=====
+.env
+.env.*
+
+# ===== 本地临时探查 / 测试脚本（不入库）=====
+_inspect*.py
+_test*.py
+_cut.py
